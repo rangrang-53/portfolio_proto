@@ -64,23 +64,33 @@ class PDFQASystem:
             답변과 소스 정보를 포함한 딕셔너리
         """
         try:
+            print(f"질문 처리 중: {question}")
+            
             # 유사한 텍스트 검색
-            similar_chunks = self.vector_store.search_similar_text(question, top_k=5)
+            similar_chunks = self.vector_store.search_similar_text(question)
+            print(f"검색된 청크 수: {len(similar_chunks)}")
             
             if not similar_chunks:
                 return {
-                    "answer": "죄송합니다. 질문과 관련된 정보를 찾을 수 없습니다. PDF가 업로드되었는지 확인해주세요.",
+                    "answer": "문서에서 관련 정보를 찾을 수 없습니다. 다른 질문을 시도해보세요.",
                     "source": []
                 }
+            
+            # 검색된 청크들의 내용 출력 (디버깅용)
+            for i, chunk in enumerate(similar_chunks):
+                print(f"청크 {i+1} (점수: {chunk['score']:.3f}): {chunk['text'][:100]}...")
             
             # LLM을 사용하여 답변 생성
             result = self.llm_service.generate_answer_with_sources(question, similar_chunks)
             
+            print(f"생성된 답변: {result['answer'][:100]}...")
+            
             return result
             
         except Exception as e:
+            print(f"질문 처리 중 오류 발생: {str(e)}")
             return {
-                "answer": f"답변 생성 중 오류가 발생했습니다: {str(e)}",
+                "answer": f"오류가 발생했습니다: {str(e)}",
                 "source": []
             }
     
