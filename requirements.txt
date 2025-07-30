@@ -1,0 +1,13 @@
+pypdf==4.0.1
+sentence-transformers==2.5.1
+pinecone==7.3.0
+google-genai==1.20.0
+python-dotenv==1.0.0
+fastapi==0.115.6
+uvicorn==0.32.1
+pydantic==2.10.4
+tiktoken==0.7.0
+# OCR 관련 라이브러리 추가
+pytesseract==0.3.10
+Pillow==10.4.0
+pdf2image==1.17.0 
