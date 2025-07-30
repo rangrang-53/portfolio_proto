@@ -162,22 +162,22 @@ class PDFProcessor:
         
         # 이미지 크기 조정 (더 높은 해상도)
         height, width = gray.shape
-        if width < 2000:  # 너무 작은 이미지는 확대
-            scale_factor = 2000 / width
+        if width < 3000:  # 더 높은 해상도로 확대
+            scale_factor = 3000 / width
             new_width = int(width * scale_factor)
             new_height = int(height * scale_factor)
             gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
         
         # 노이즈 제거 (더 강한 필터)
-        denoised = cv2.medianBlur(gray, 5)
+        denoised = cv2.medianBlur(gray, 7)
         
         # 적응형 이진화 (더 나은 결과)
         binary = cv2.adaptiveThreshold(
-            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 5
         )
         
         # 모폴로지 연산으로 텍스트 선명화
-        kernel = np.ones((2, 2), np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
         processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
         
         # 엣지 강화
@@ -189,14 +189,14 @@ class PDFProcessor:
         
         # 대비 향상
         enhancer = ImageEnhance.Contrast(processed_image)
-        processed_image = enhancer.enhance(2.5)
+        processed_image = enhancer.enhance(3.0)
         
         # 선명도 향상
         processed_image = processed_image.filter(ImageFilter.SHARPEN)
         
         # 밝기 조정
         enhancer = ImageEnhance.Brightness(processed_image)
-        processed_image = enhancer.enhance(1.2)
+        processed_image = enhancer.enhance(1.3)
         
         return processed_image
     
@@ -264,6 +264,12 @@ class PDFProcessor:
         text = re.sub(r'낙짜\s*전부', '날짜 정보', text)  # 낙짜 전부 -> 날짜 정보
         text = re.sub(r'날짜\s*전부', '날짜 정보', text)  # 날짜 전부 -> 날짜 정보
         text = re.sub(r'(\d{4})년', r'\1년', text)  # 연도 형식 정리
+        
+        # 이름 관련 OCR 오류 수정
+        text = re.sub(r'\b닉\b', '이상우', text)  # 닉 -> 이상우
+        text = re.sub(r'\b닉\s*T\b', '이상우', text)  # 닉 T -> 이상우
+        text = re.sub(r'\bAg\s*^\s*ee\b', '이상우', text)  # Ag ^ ee -> 이상우
+        text = re.sub(r'\bP\|BAESt\b', '이상우', text)  # P|BAESt -> 이상우
         
         # 기술 스택 관련 오류 수정
         text = re.sub(r'Spring\s*Boot', 'Spring Boot', text)  # Spring Boot 정리

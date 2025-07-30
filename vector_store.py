@@ -100,13 +100,13 @@ class VectorStore:
         except Exception as e:
             print(f"텍스트 추가 중 오류 발생: {str(e)}")
     
-    def search_similar_text(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_similar_text(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """
         쿼리와 유사한 텍스트를 검색합니다.
         
         Args:
             query: 검색 쿼리
-            top_k: 반환할 결과 수 (기본값: 5로 증가)
+            top_k: 반환할 결과 수 (기본값: 3으로 줄여서 속도 향상)
             
         Returns:
             유사한 텍스트들의 리스트
@@ -119,14 +119,14 @@ class VectorStore:
             # 쿼리를 임베딩으로 변환
             query_embedding = self.embedding_model.encode(query).tolist()
             
-            # 유사한 벡터 검색
+            # 유사한 벡터 검색 (속도 최적화)
             results = index.query(
                 vector=query_embedding,
                 top_k=top_k,
                 include_metadata=True
             )
             
-            # 결과를 리스트로 변환 (필터링 없이 모든 결과 포함)
+            # 결과를 리스트로 변환 (빠른 처리)
             similar_texts = []
             for match in results.matches:
                 similar_texts.append({
@@ -135,11 +135,6 @@ class VectorStore:
                     "score": match.score,
                     "metadata": match.metadata
                 })
-            
-            # 디버깅을 위한 로그 추가
-            print(f"검색 결과: {len(similar_texts)}개 반환됨")
-            for i, text in enumerate(similar_texts):
-                print(f"  결과 {i+1} (점수: {text['score']:.3f}): {text['text'][:100]}...")
             
             return similar_texts
             
