@@ -137,12 +137,24 @@ class PDFProcessor:
             for i, image in enumerate(images):
                 print(f"페이지 {i+1} OCR 처리 중...")
                 
-                # 이미지 전처리
-                processed_image = self._preprocess_image(image)
+                # 여러 전처리 방법 시도
+                preprocessed_images = [
+                    self._preprocess_image(image),
+                    self._preprocess_image_alternative(image),
+                    image  # 원본 이미지도 시도
+                ]
                 
-                # 이미지에서 텍스트 추출 (향상된 설정)
-                page_text = self._extract_text_with_enhanced_ocr(processed_image)
-                text += page_text + "\n"
+                best_page_text = ""
+                
+                for preprocessed_image in preprocessed_images:
+                    # 이미지에서 텍스트 추출 (향상된 설정)
+                    page_text = self._extract_text_with_enhanced_ocr(preprocessed_image)
+                    
+                    # 더 나은 결과 선택
+                    if len(page_text.strip()) > len(best_page_text.strip()):
+                        best_page_text = page_text
+                
+                text += best_page_text + "\n"
             
             return text
             
@@ -200,16 +212,120 @@ class PDFProcessor:
         
         return processed_image
     
+    def _preprocess_image_alternative(self, image: Image.Image) -> Image.Image:
+        """대안적인 이미지 전처리 방법 (세로 텍스트와 제목 스타일용)"""
+        # PIL 이미지를 numpy 배열로 변환
+        img_array = np.array(image)
+        
+        # 그레이스케일 변환
+        if len(img_array.shape) == 3:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = img_array
+        
+        # 이미지 크기 조정 (더 높은 해상도)
+        height, width = gray.shape
+        if width < 4000:  # 더 높은 해상도로 확대
+            scale_factor = 4000 / width
+            new_width = int(width * scale_factor)
+            new_height = int(height * scale_factor)
+            gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+        
+        # 가우시안 블러로 노이즈 제거
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Otsu 이진화 (전역 이진화)
+        _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 모폴로지 연산으로 텍스트 선명화
+        kernel = np.ones((2, 2), np.uint8)
+        processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        
+        # numpy 배열을 PIL 이미지로 변환
+        processed_image = Image.fromarray(processed)
+        
+        # 대비 향상 (더 강하게)
+        enhancer = ImageEnhance.Contrast(processed_image)
+        processed_image = enhancer.enhance(4.0)
+        
+        # 선명도 향상 (더 강하게)
+        processed_image = processed_image.filter(ImageFilter.SHARPEN)
+        processed_image = processed_image.filter(ImageFilter.SHARPEN)
+        
+        return processed_image
+    
     def _extract_text_with_enhanced_ocr(self, image: Image.Image) -> str:
         """향상된 OCR 설정으로 텍스트를 추출합니다."""
         try:
-            # 기본 OCR 설정
-            text = pytesseract.image_to_string(
-                image, 
-                lang='kor+eng',
-                config='--oem 3 --psm 6'
-            )
-            return text
+            # 여러 PSM 모드를 시도하여 다양한 텍스트 레이아웃 인식
+            psm_modes = [
+                '--oem 3 --psm 6',  # 균등한 텍스트 블록
+                '--oem 3 --psm 3',  # 자동 페이지 세그먼테이션
+                '--oem 3 --psm 4',  # 세로 텍스트
+                '--oem 3 --psm 5',  # 세로 텍스트 (균등한 텍스트 블록)
+                '--oem 3 --psm 8',  # 단일 텍스트 블록
+                '--oem 3 --psm 11', # 흰색 텍스트가 있는 검은색 텍스트
+                '--oem 3 --psm 12', # 균등한 텍스트 블록 (세로)
+                '--oem 3 --psm 13'  # 원시 텍스트
+            ]
+            
+            best_text = ""
+            max_confidence = 0
+            
+            for psm_config in psm_modes:
+                try:
+                    # OCR 실행
+                    text = pytesseract.image_to_string(
+                        image, 
+                        lang='kor+eng',
+                        config=psm_config
+                    )
+                    
+                    # 신뢰도 확인 (가능한 경우)
+                    try:
+                        data = pytesseract.image_to_data(
+                            image, 
+                            lang='kor+eng',
+                            config=psm_config,
+                            output_type=pytesseract.Output.DICT
+                        )
+                        
+                        # 평균 신뢰도 계산
+                        confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+                        if confidences:
+                            avg_confidence = sum(confidences) / len(confidences)
+                        else:
+                            avg_confidence = 0
+                    except:
+                        avg_confidence = 0
+                    
+                    # 더 나은 결과 선택
+                    if len(text.strip()) > len(best_text.strip()) or avg_confidence > max_confidence:
+                        best_text = text
+                        max_confidence = avg_confidence
+                        
+                except Exception as e:
+                    print(f"PSM {psm_config} 모드에서 오류: {e}")
+                    continue
+            
+            # 세로 텍스트 특별 처리
+            if not best_text.strip():
+                # 이미지를 90도 회전하여 세로 텍스트 인식 시도
+                rotated_image = image.rotate(90, expand=True)
+                for psm_config in ['--oem 3 --psm 6', '--oem 3 --psm 4']:
+                    try:
+                        rotated_text = pytesseract.image_to_string(
+                            rotated_image, 
+                            lang='kor+eng',
+                            config=psm_config
+                        )
+                        if len(rotated_text.strip()) > len(best_text.strip()):
+                            best_text = rotated_text
+                    except:
+                        continue
+            
+            return best_text
+            
         except Exception as e:
             print(f"OCR 처리 중 오류: {e}")
             return ""
@@ -265,11 +381,9 @@ class PDFProcessor:
         text = re.sub(r'날짜\s*전부', '날짜 정보', text)  # 날짜 전부 -> 날짜 정보
         text = re.sub(r'(\d{4})년', r'\1년', text)  # 연도 형식 정리
         
-        # 이름 관련 OCR 오류 수정
-        text = re.sub(r'\b닉\b', '이상우', text)  # 닉 -> 이상우
-        text = re.sub(r'\b닉\s*T\b', '이상우', text)  # 닉 T -> 이상우
-        text = re.sub(r'\bAg\s*^\s*ee\b', '이상우', text)  # Ag ^ ee -> 이상우
-        text = re.sub(r'\bP\|BAESt\b', '이상우', text)  # P|BAESt -> 이상우
+        # 제목 스타일 텍스트 관련 오류 수정
+        text = re.sub(r'열정에\s*죽고', '열정에 죽고', text)  # 열정에 죽고 정리
+        text = re.sub(r'열정에\s*사는', '열정에 사는', text)  # 열정에 사는 정리
         
         # 기술 스택 관련 오류 수정
         text = re.sub(r'Spring\s*Boot', 'Spring Boot', text)  # Spring Boot 정리
@@ -286,6 +400,11 @@ class PDFProcessor:
         # 일반적인 OCR 오류 수정
         text = re.sub(r'([A-Z])([a-z]+)([A-Z])', r'\1\2 \3', text)  # CamelCase 분리
         text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)  # camelCase 분리
+        
+        # 세로 텍스트에서 발생할 수 있는 문자 분리 오류 수정
+        text = re.sub(r'([가-힣])\s*([가-힣])', r'\1\2', text)  # 한글 사이 공백 제거
+        text = re.sub(r'([가-힣])\s*([A-Za-z])', r'\1\2', text)  # 한글과 영문 사이 공백 제거
+        text = re.sub(r'([A-Za-z])\s*([가-힣])', r'\1\2', text)  # 영문과 한글 사이 공백 제거
         
         # 특수 문자 정리 (더 관대하게)
         text = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\{\}\가-힣\@\#\$\%\^\&\*\+\=\|\~\`\<\>\?\/\\]', '', text)
