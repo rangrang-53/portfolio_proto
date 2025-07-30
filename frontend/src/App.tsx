@@ -47,7 +47,10 @@ function App() {
                 질문하기
               </h2>
               <div className="h-96">
-                <ChatInterface onAskQuestion={handleAskQuestion} />
+                <ChatInterface 
+                  onAskQuestion={handleAskQuestion} 
+                  isReady={isReady}
+                />
               </div>
             </div>
           </div>
