@@ -60,7 +60,8 @@ class LLMService:
                     generation_config=genai.types.GenerationConfig(
                         max_output_tokens=500,  # 응답 길이 제한
                         temperature=0.3,  # 일관성 향상
-                    )
+                    ),
+                    timeout=60  # 60초 타임아웃
                 )
                 
                 answer = response.text
@@ -137,7 +138,7 @@ class LLMService:
             self.llama_endpoint,
             headers=headers,
             json=data,
-            timeout=30
+            timeout=30  # 30초 타임아웃
         )
         
         if response.status_code == 200:

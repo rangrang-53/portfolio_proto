@@ -60,20 +60,32 @@ export const uploadPDF = async (file: File): Promise<UploadResponse> => {
 // 질문하기
 export const askQuestion = async (question: string): Promise<QuestionResponse> => {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60초 타임아웃
+
     const response = await fetch(`${API_BASE_URL}/ask-question`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ question }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
+      if (response.status === 408) {
+        throw new Error('요청 시간이 초과되었습니다. (60초 제한)');
+      }
       throw new Error('질문 처리 중 오류가 발생했습니다.');
     }
 
     return await response.json();
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('요청 시간이 초과되었습니다. (60초 제한)');
+    }
     throw new Error('질문 처리 중 오류가 발생했습니다.');
   }
 };

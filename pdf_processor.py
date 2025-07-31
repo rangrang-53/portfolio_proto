@@ -162,18 +162,22 @@ class PDFProcessor:
         
         # 이미지 크기 조정 (더 높은 해상도)
         height, width = gray.shape
-        if width < 3000:  # 더 높은 해상도로 확대
-            scale_factor = 3000 / width
+        if width < 4000:  # 더 높은 해상도로 확대
+            scale_factor = 4000 / width
             new_width = int(width * scale_factor)
             new_height = int(height * scale_factor)
             gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
         
         # 노이즈 제거 (더 강한 필터)
-        denoised = cv2.medianBlur(gray, 7)
+        denoised = cv2.medianBlur(gray, 5)
+        
+        # 샤프닝 필터 적용
+        kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+        sharpened = cv2.filter2D(denoised, -1, kernel)
         
         # 적응형 이진화 (더 나은 결과)
         binary = cv2.adaptiveThreshold(
-            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 5
+            sharpened, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
         )
         
         # 모폴로지 연산으로 텍스트 선명화
@@ -203,13 +207,52 @@ class PDFProcessor:
     def _extract_text_with_enhanced_ocr(self, image: Image.Image) -> str:
         """향상된 OCR 설정으로 텍스트를 추출합니다."""
         try:
-            # 기본 OCR 설정
-            text = pytesseract.image_to_string(
-                image, 
-                lang='kor+eng',
-                config='--oem 3 --psm 6'
-            )
-            return text
+            # 여러 OCR 설정을 시도하여 최적의 결과 찾기
+            configs = [
+                '--oem 3 --psm 6',  # 기본 설정
+                '--oem 3 --psm 3',  # 자동 페이지 세그멘테이션
+                '--oem 3 --psm 1',  # 자동 페이지 세그멘테이션 + OSD
+                '--oem 1 --psm 6',  # LSTM OCR 엔진
+                '--oem 1 --psm 3',  # LSTM + 자동 세그멘테이션
+            ]
+            
+            best_text = ""
+            best_confidence = 0
+            
+            for config in configs:
+                try:
+                    # OCR 실행
+                    text = pytesseract.image_to_string(
+                        image, 
+                        lang='kor+eng',
+                        config=config
+                    )
+                    
+                    # 텍스트 품질 평가 (한글과 영문 비율)
+                    korean_chars = len(re.findall(r'[가-힣]', text))
+                    english_chars = len(re.findall(r'[a-zA-Z]', text))
+                    total_chars = len(text.replace(' ', ''))
+                    
+                    if total_chars > 0:
+                        confidence = (korean_chars + english_chars) / total_chars
+                        if confidence > best_confidence:
+                            best_text = text
+                            best_confidence = confidence
+                            
+                except Exception as e:
+                    print(f"OCR 설정 {config} 실패: {e}")
+                    continue
+            
+            if not best_text:
+                # 모든 설정이 실패한 경우 기본 설정으로 재시도
+                best_text = pytesseract.image_to_string(
+                    image, 
+                    lang='kor+eng',
+                    config='--oem 3 --psm 6'
+                )
+            
+            return best_text
+            
         except Exception as e:
             print(f"OCR 처리 중 오류: {e}")
             return ""

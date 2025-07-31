@@ -12,8 +12,14 @@ from pdf_qa_system import PDFQASystem
 # 환경 변수 로드
 load_dotenv()
 
-# FastAPI 앱 생성
-app = FastAPI(title="PDF Q&A API", version="1.0.0")
+# FastAPI 앱 생성 (파일 크기 제한 설정)
+app = FastAPI(
+    title="PDF Q&A API", 
+    version="1.0.0",
+    # 파일 업로드 크기 제한 설정 (100MB)
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 # CORS 설정
 app.add_middleware(
@@ -35,7 +41,7 @@ class QuestionResponse(BaseModel):
     source: list
 
 @app.post("/upload-pdf")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...)):  # 파일 크기 제한 제거
     """
     PDF 파일을 업로드하고 처리합니다.
     """
@@ -44,9 +50,13 @@ async def upload_pdf(file: UploadFile = File(...)):
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
         
+        # 파일 크기 검증 (100MB)
+        content = await file.read()
+        if len(content) > 100 * 1024 * 1024:  # 100MB
+            raise HTTPException(status_code=400, detail="파일 크기가 100MB를 초과합니다.")
+        
         # 임시 파일로 저장
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
-            content = await file.read()
             temp_file.write(content)
             temp_file_path = temp_file.name
         
@@ -83,12 +93,20 @@ async def ask_question(request: QuestionRequest):
     """
     질문에 대한 답변을 생성합니다.
     """
+    import asyncio
+    
     try:
-        result = pdf_qa_system.ask_question(request.question)
+        # 60초 타임아웃으로 질문 처리
+        result = await asyncio.wait_for(
+            asyncio.to_thread(pdf_qa_system.ask_question, request.question),
+            timeout=60.0
+        )
         return QuestionResponse(
             answer=result["answer"],
             source=result["source"]
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=408, detail="요청 시간이 초과되었습니다. (60초 제한)")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"답변 생성 중 오류가 발생했습니다: {str(e)}")
 
@@ -112,4 +130,8 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000
+    ) 
