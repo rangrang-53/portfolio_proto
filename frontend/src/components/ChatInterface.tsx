@@ -79,6 +79,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady, o
     });
   };
 
+  const renderFormattedText = (text: string) => {
+    // **텍스트** 패턴을 <strong> 태그로 변환
+    const formattedText = text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br />')
+      .replace(/^(\d+\.\s)/gm, '<div class="font-semibold text-blue-600 mb-1">$1</div>')
+      .replace(/^(\*\s)/gm, '<div class="ml-4">• $1</div>');
+
+    return (
+      <div 
+        className="text-sm leading-relaxed"
+        dangerouslySetInnerHTML={{ __html: formattedText }}
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* 메시지 영역 */}
@@ -107,29 +123,35 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady, o
             className={`flex ${message.isUser ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+              className={`max-w-xs lg:max-w-md xl:max-w-lg px-4 py-3 rounded-lg ${
                 message.isUser
                   ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-gray-800'
+                  : 'bg-gray-100 text-gray-800 border border-gray-200'
               }`}
             >
-              <div className="text-sm">{message.text}</div>
-              <div className="text-xs opacity-70 mt-1">
+              {message.isUser ? (
+                <div className="text-sm">{message.text}</div>
+              ) : (
+                <div className="space-y-2">
+                  {renderFormattedText(message.text)}
+                </div>
+              )}
+              <div className="text-xs opacity-70 mt-2">
                 {formatTime(message.timestamp)}
               </div>
               
               {/* 소스 정보 표시 */}
               {!message.isUser && message.sources && message.sources.length > 0 && (
                 <div className="mt-3 pt-2 border-t border-gray-300">
-                  <div className="text-xs font-semibold mb-2">
+                  <div className="text-xs font-semibold mb-2 text-gray-600">
                     참고 소스 ({message.sources.length}개)
                   </div>
                   {message.sources.map((source, index) => (
-                    <div key={source.chunk_id} className="text-xs mb-2">
-                      <div className="font-medium">
-                        소스 {index + 1} (ID: {source.chunk_id})
+                    <div key={source.chunk_id} className="text-xs mb-2 p-2 bg-gray-50 rounded">
+                      <div className="font-medium text-gray-700">
+                        소스 {index + 1}
                       </div>
-                      <div className="text-gray-600 mt-1">
+                      <div className="text-gray-600 mt-1 text-xs">
                         {source.snippet}
                       </div>
                     </div>
@@ -142,8 +164,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady, o
         
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-gray-200 text-gray-800 max-w-xs lg:max-w-md px-4 py-2 rounded-lg">
-              <div className="text-sm">답변을 생성하고 있습니다...</div>
+            <div className="bg-gray-100 text-gray-800 max-w-xs lg:max-w-md px-4 py-3 rounded-lg border border-gray-200">
+              <div className="text-sm flex items-center">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                답변을 생성하고 있습니다...
+              </div>
             </div>
           </div>
         )}
