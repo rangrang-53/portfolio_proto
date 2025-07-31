@@ -1,6 +1,6 @@
 import os
 from typing import List, Dict, Any
-from pinecone import Pinecone
+from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
@@ -35,11 +35,15 @@ class VectorStore:
                 print(f"인덱스 '{self.index_name}'가 이미 존재합니다.")
                 return
             
-            # 인덱스 생성
+            # 인덱스 생성 (새로운 API 형식)
             self.pc.create_index(
                 name=self.index_name,
                 dimension=dimension,
-                metric="cosine"
+                metric="cosine",
+                spec=ServerlessSpec(
+                    cloud="aws",
+                    region="us-east-1"
+                )
             )
             print(f"인덱스 '{self.index_name}'가 생성되었습니다.")
             
