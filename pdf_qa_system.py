@@ -1,4 +1,5 @@
 import os
+import time
 from typing import Dict, Any, List
 from pdf_processor import PDFProcessor
 from vector_store import VectorStore
@@ -64,11 +65,13 @@ class PDFQASystem:
             답변과 소스 정보를 포함한 딕셔너리
         """
         try:
-            print(f"질문 처리 중: {question}")
+            start_time = time.time()
+            print(f"질문 처리 시작: {question}")
             
-            # 유사한 텍스트 검색
-            similar_chunks = self.vector_store.search_similar_text(question)
-            print(f"검색된 청크 수: {len(similar_chunks)}")
+            # 유사한 텍스트 검색 (결과 수 제한으로 속도 향상)
+            similar_chunks = self.vector_store.search_similar_text(question, top_k=2)
+            search_time = time.time() - start_time
+            print(f"벡터 검색 완료 ({search_time:.2f}초): {len(similar_chunks)}개 청크")
             
             if not similar_chunks:
                 return {
@@ -76,13 +79,33 @@ class PDFQASystem:
                     "source": []
                 }
             
+            # 컨텍스트 길이 제한 (성능 최적화)
+            total_context_length = 0
+            max_context_length = 2000  # 최대 컨텍스트 길이 제한
+            
+            filtered_chunks = []
+            for chunk in similar_chunks:
+                chunk_length = len(chunk['text'])
+                if total_context_length + chunk_length <= max_context_length:
+                    filtered_chunks.append(chunk)
+                    total_context_length += chunk_length
+                else:
+                    break
+            
+            print(f"필터링된 청크: {len(filtered_chunks)}개 (총 {total_context_length}자)")
+            
             # 검색된 청크들의 내용 출력 (디버깅용)
-            for i, chunk in enumerate(similar_chunks):
+            for i, chunk in enumerate(filtered_chunks):
                 print(f"청크 {i+1} (점수: {chunk['score']:.3f}): {chunk['text'][:100]}...")
             
             # LLM을 사용하여 답변 생성
-            result = self.llm_service.generate_answer_with_sources(question, similar_chunks)
+            llm_start_time = time.time()
+            result = self.llm_service.generate_answer_with_sources(question, filtered_chunks)
+            llm_time = time.time() - llm_start_time
+            print(f"LLM 응답 생성 완료 ({llm_time:.2f}초)")
             
+            total_time = time.time() - start_time
+            print(f"전체 처리 시간: {total_time:.2f}초")
             print(f"생성된 답변: {result['answer'][:100]}...")
             
             return result

@@ -4,9 +4,10 @@ import { uploadPDF } from '../services/api';
 
 interface PDFUploadProps {
   onUploadSuccess: () => void;
+  isEnabled: boolean;
 }
 
-const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
+const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -14,6 +15,8 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isEnabled) return;
+    
     const selectedFile = event.target.files?.[0];
     if (selectedFile && selectedFile.type === 'application/pdf') {
       setFile(selectedFile);
@@ -26,6 +29,8 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isEnabled) return;
+    
     event.preventDefault();
     const droppedFile = event.dataTransfer.files[0];
     if (droppedFile && droppedFile.type === 'application/pdf') {
@@ -43,7 +48,7 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    if (!file || !isEnabled) return;
 
     setIsUploading(true);
     setUploadStatus('idle');
@@ -73,15 +78,29 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
 
   return (
     <div className="w-full max-w-2xl mx-auto">
-      <div className="bg-white rounded-lg shadow-lg p-6">
+      <div className={`bg-white rounded-lg shadow-lg p-6 ${!isEnabled ? 'opacity-50' : ''}`}>
         <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
           <FileText className="w-6 h-6 mr-2 text-primary-600" />
           PDF 문서 업로드
         </h2>
 
+        {!isEnabled && (
+          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center text-blue-800">
+              <CheckCircle className="w-5 h-5 mr-2" />
+              <span className="font-medium">PDF가 이미 업로드되었습니다</span>
+            </div>
+            <p className="text-sm text-blue-700 mt-1">
+              다른 PDF를 분석하려면 '다른 PDF 분석하기' 버튼을 클릭하세요.
+            </p>
+          </div>
+        )}
+
         <div
           className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-            file
+            !isEnabled
+              ? 'border-gray-200 bg-gray-50 cursor-not-allowed'
+              : file
               ? 'border-green-300 bg-green-50'
               : 'border-gray-300 hover:border-primary-400'
           }`}
@@ -94,20 +113,26 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
             accept=".pdf"
             onChange={handleFileSelect}
             className="hidden"
+            disabled={!isEnabled}
           />
 
           {!file ? (
             <div>
-              <Upload className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-              <p className="text-lg font-medium text-gray-700 mb-2">
-                PDF 파일을 드래그하거나 클릭하여 업로드
+              <Upload className={`w-12 h-12 mx-auto mb-4 ${!isEnabled ? 'text-gray-300' : 'text-gray-400'}`} />
+              <p className={`text-lg font-medium mb-2 ${!isEnabled ? 'text-gray-400' : 'text-gray-700'}`}>
+                {!isEnabled ? 'PDF 업로드가 비활성화되었습니다' : 'PDF 파일을 드래그하거나 클릭하여 업로드'}
               </p>
-              <p className="text-sm text-gray-500 mb-4">
-                또는 <span className="text-primary-600">여기를 클릭</span>하여 파일 선택
+              <p className={`text-sm mb-4 ${!isEnabled ? 'text-gray-400' : 'text-gray-500'}`}>
+                {!isEnabled ? '다른 PDF 분석하기 버튼을 클릭하여 활성화하세요' : '또는 여기를 클릭하여 파일 선택'}
               </p>
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+                disabled={!isEnabled}
+                className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                  !isEnabled
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-primary-600 text-white hover:bg-primary-700'
+                }`}
               >
                 파일 선택
               </button>
@@ -124,7 +149,12 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
                 </div>
                 <button
                   onClick={removeFile}
-                  className="ml-4 p-1 text-gray-400 hover:text-red-500 transition-colors"
+                  disabled={!isEnabled}
+                  className={`ml-4 p-1 transition-colors ${
+                    !isEnabled
+                      ? 'text-gray-300 cursor-not-allowed'
+                      : 'text-gray-400 hover:text-red-500'
+                  }`}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -146,9 +176,9 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess }) => {
 
               <button
                 onClick={handleUpload}
-                disabled={isUploading}
+                disabled={isUploading || !isEnabled}
                 className={`px-6 py-2 rounded-lg text-white font-medium transition-colors ${
-                  isUploading
+                  isUploading || !isEnabled
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-primary-600 hover:bg-primary-700'
                 }`}

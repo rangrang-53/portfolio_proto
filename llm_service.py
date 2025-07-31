@@ -34,20 +34,26 @@ class LLMService:
             답변과 소스 정보를 포함한 딕셔너리
         """
         try:
-            # 관련 텍스트들을 결합
-            context_text = "\n\n".join([chunk["text"] for chunk in similar_chunks])
+            # 관련 텍스트들을 결합 (길이 제한)
+            context_text = self._combine_chunks_optimized(similar_chunks)
             
-            # 향상된 프롬프트 생성
-            prompt = self._create_enhanced_prompt(question, context_text)
+            # 간결한 프롬프트 생성
+            prompt = self._create_optimized_prompt(question, context_text)
             
-            # 답변 생성
-            response = self.model.generate_content(prompt)
+            # 답변 생성 (빠른 응답을 위한 설정)
+            response = self.model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=500,  # 응답 길이 제한
+                    temperature=0.3,  # 일관성 향상
+                )
+            )
             
             # 소스 정보 생성
             sources = []
             for i, chunk in enumerate(similar_chunks):
-                # 청크에서 핵심 부분 추출 (처음 200자)
-                snippet = chunk["text"][:200] + "..." if len(chunk["text"]) > 200 else chunk["text"]
+                # 청크에서 핵심 부분 추출 (처음 150자로 줄임)
+                snippet = chunk["text"][:150] + "..." if len(chunk["text"]) > 150 else chunk["text"]
                 sources.append({
                     "chunk_id": chunk["chunk_id"],
                     "snippet": snippet
@@ -65,20 +71,30 @@ class LLMService:
                 "source": []
             }
     
-    def _create_enhanced_prompt(self, question: str, context_text: str) -> str:
-        """향상된 프롬프트를 생성합니다."""
-        prompt = f"""
-PDF 문서 내용:
+    def _combine_chunks_optimized(self, chunks: List[Dict[str, Any]]) -> str:
+        """청크들을 최적화된 방식으로 결합합니다."""
+        combined_text = ""
+        max_length = 1500  # 최대 길이 제한
+        
+        for chunk in chunks:
+            chunk_text = chunk["text"]
+            if len(combined_text) + len(chunk_text) <= max_length:
+                combined_text += chunk_text + "\n\n"
+            else:
+                # 남은 공간에 맞게 잘라서 추가
+                remaining_space = max_length - len(combined_text)
+                if remaining_space > 50:  # 최소 50자 이상 남은 경우만
+                    combined_text += chunk_text[:remaining_space] + "..."
+                break
+        
+        return combined_text.strip()
+    
+    def _create_optimized_prompt(self, question: str, context_text: str) -> str:
+        """최적화된 프롬프트를 생성합니다."""
+        prompt = f"""문서 내용:
 {context_text}
 
 질문: {question}
 
-지침:
-- 질문에 직접적으로 답변하세요
-- 문서 내용만 사용하세요
-- 간결하게 답변하세요
-- OCR 오류는 자동으로 수정하세요
-
-답변:
-"""
+답변:"""
         return prompt 

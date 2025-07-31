@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { askQuestion, QuestionResponse } from '../services/api';
+import { QuestionResponse } from '../services/api';
+import { RefreshCw } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -15,9 +16,10 @@ interface Message {
 interface ChatInterfaceProps {
   onAskQuestion: (question: string) => Promise<QuestionResponse>;
   isReady: boolean;
+  onResetPDF: () => void;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady, onResetPDF }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -62,6 +64,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady })
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleResetPDF = () => {
+    setMessages([]);
+    setInputValue('');
+    onResetPDF();
   };
 
   const formatTime = (date: Date) => {
@@ -161,6 +169,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ onAskQuestion, isReady })
           </button>
         </div>
       </form>
+
+      {/* 다른 PDF 분석하기 버튼 */}
+      {isReady && (
+        <div className="p-4 border-t border-gray-200 bg-gray-50">
+          <button
+            onClick={handleResetPDF}
+            className="w-full flex items-center justify-center px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            다른 PDF 분석하기
+          </button>
+          <p className="text-xs text-gray-500 text-center mt-2">
+            새로운 PDF를 업로드하려면 이 버튼을 클릭하세요
+          </p>
+        </div>
+      )}
     </div>
   );
 };

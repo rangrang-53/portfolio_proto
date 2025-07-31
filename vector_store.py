@@ -100,13 +100,13 @@ class VectorStore:
         except Exception as e:
             print(f"텍스트 추가 중 오류 발생: {str(e)}")
     
-    def search_similar_text(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    def search_similar_text(self, query: str, top_k: int = 2) -> List[Dict[str, Any]]:
         """
         쿼리와 유사한 텍스트를 검색합니다.
         
         Args:
             query: 검색 쿼리
-            top_k: 반환할 결과 수 (기본값: 3으로 줄여서 속도 향상)
+            top_k: 반환할 결과 수 (기본값: 2로 줄여서 속도 향상)
             
         Returns:
             유사한 텍스트들의 리스트

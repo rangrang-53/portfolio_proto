@@ -6,9 +6,20 @@ import { askQuestion, QuestionResponse } from './services/api';
 
 function App() {
   const [isReady, setIsReady] = useState(false);
+  const [isUploadEnabled, setIsUploadEnabled] = useState(true);
 
   const handleAskQuestion = async (question: string): Promise<QuestionResponse> => {
     return await askQuestion(question);
+  };
+
+  const handleUploadSuccess = () => {
+    setIsReady(true);
+    setIsUploadEnabled(false);
+  };
+
+  const handleResetPDF = () => {
+    setIsReady(false);
+    setIsUploadEnabled(true);
   };
 
   return (
@@ -37,7 +48,8 @@ function App() {
                 PDF 업로드
               </h2>
               <PDFUpload 
-                onUploadSuccess={() => setIsReady(true)}
+                onUploadSuccess={handleUploadSuccess}
+                isEnabled={isUploadEnabled}
               />
             </div>
 
@@ -50,6 +62,7 @@ function App() {
                 <ChatInterface 
                   onAskQuestion={handleAskQuestion} 
                   isReady={isReady}
+                  onResetPDF={handleResetPDF}
                 />
               </div>
             </div>
