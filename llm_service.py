@@ -1,30 +1,43 @@
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import google.generativeai as genai
+import requests
+import json
 from dotenv import load_dotenv
 
 # 환경 변수 로드
 load_dotenv()
 
 class LLMService:
-    """Google Gemini LLM 서비스"""
+    """Google Gemini LLM 서비스 (Llama 4 폴백 지원)"""
     
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, use_fallback: bool = True, llama_api_key: str = None, llama_endpoint: str = None):
         """
         Args:
             api_key: Google AI API 키 (None이면 .env에서 로드)
+            use_fallback: Llama 4 폴백 사용 여부
+            llama_api_key: Llama API 키 (직접 전달)
+            llama_endpoint: Llama API 엔드포인트 (직접 전달)
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.use_fallback = use_fallback
+        
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
         
         # Gemini 설정
         genai.configure(api_key=self.api_key)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Llama 4 폴백 설정 (.env에서 로드 또는 직접 파라미터)
+        if self.use_fallback:
+            self.llama_api_key = llama_api_key or os.getenv("LLAMA_API_KEY")  # 직접 전달 또는 .env에서 로드
+            self.llama_endpoint = llama_endpoint or "https://api.llama.meta.com/v1/chat/completions"
     
     def generate_answer_with_sources(self, question: str, similar_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         질문과 관련 청크들을 기반으로 답변을 생성합니다.
+        Gemini 실패 시 Llama 4로 폴백합니다.
         
         Args:
             question: 사용자 질문
@@ -40,14 +53,34 @@ class LLMService:
             # 간결한 프롬프트 생성
             prompt = self._create_optimized_prompt(question, context_text)
             
-            # 답변 생성 (빠른 응답을 위한 설정)
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=500,  # 응답 길이 제한
-                    temperature=0.3,  # 일관성 향상
+            # Gemini로 답변 생성 시도
+            try:
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        max_output_tokens=500,  # 응답 길이 제한
+                        temperature=0.3,  # 일관성 향상
+                    )
                 )
-            )
+                
+                answer = response.text
+                model_used = "Gemini"
+                
+            except Exception as gemini_error:
+                print(f"Gemini 오류: {str(gemini_error)}")
+                
+                # 폴백이 활성화되어 있으면 Llama 4 사용 (API 키 없어도 시도)
+                if self.use_fallback:
+                    try:
+                        answer = self._generate_with_llama(prompt)
+                        model_used = "Llama 4 (폴백)"
+                    except Exception as llama_error:
+                        print(f"Llama 4 폴백 오류: {str(llama_error)}")
+                        answer = "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다."
+                        model_used = "오류"
+                else:
+                    answer = "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다."
+                    model_used = "오류"
             
             # 소스 정보 생성
             sources = []
@@ -60,16 +93,58 @@ class LLMService:
                 })
             
             return {
-                "answer": response.text,
-                "source": sources
+                "answer": answer,
+                "source": sources,
+                "model_used": model_used
             }
             
         except Exception as e:
             print(f"LLM 서비스 오류: {str(e)}")
             return {
                 "answer": "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다.",
-                "source": []
+                "source": [],
+                "model_used": "오류"
             }
+    
+    def _generate_with_llama(self, prompt: str) -> str:
+        """Llama 4를 사용하여 답변을 생성합니다."""
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # API 키가 있으면 Authorization 헤더 추가
+        if self.llama_api_key:
+            headers["Authorization"] = f"Bearer {self.llama_api_key}"
+        
+        data = {
+            "model": "Llama-4-Scout-17B-16E",  # Meta Llama Scout 모델
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "당신은 이력서, 포트폴리오, 경력기술서 등의 문서를 분석하는 AI PDF 분석가입니다. 문서 내용을 바탕으로 정확하고 가독성 높은 요약을 생성하세요."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "max_tokens": 500,
+            "temperature": 0.3,
+            "stream": False
+        }
+        
+        response = requests.post(
+            self.llama_endpoint,
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        else:
+            raise Exception(f"Llama API 오류: {response.status_code} - {response.text}")
     
     def _combine_chunks_optimized(self, chunks: List[Dict[str, Any]]) -> str:
         """청크들을 최적화된 방식으로 결합합니다."""

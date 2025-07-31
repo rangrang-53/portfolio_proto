@@ -7,6 +7,7 @@ fastapi==0.115.6
 uvicorn==0.32.1
 pydantic==2.10.4
 tiktoken==0.7.0
+requests==2.31.0
 # OCR 관련 라이브러리 추가
 pytesseract==0.3.10
 Pillow==10.4.0

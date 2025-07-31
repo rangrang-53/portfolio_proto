@@ -8,11 +8,21 @@ from llm_service import LLMService
 class PDFQASystem:
     """PDF Q&A 시스템의 메인 클래스"""
     
-    def __init__(self):
-        """PDF Q&A 시스템을 초기화합니다."""
+    def __init__(self, gemini_api_key: str = None, llama_api_key: str = None):
+        """
+        PDF Q&A 시스템을 초기화합니다.
+        
+        Args:
+            gemini_api_key: Gemini API 키 (선택사항)
+            llama_api_key: Llama API 키 (선택사항)
+        """
         self.pdf_processor = PDFProcessor(use_ocr=True)
         self.vector_store = VectorStore()
-        self.llm_service = LLMService()
+        self.llm_service = LLMService(
+            api_key=gemini_api_key,
+            use_fallback=True,
+            llama_api_key=llama_api_key
+        )
         
         # 인덱스 생성
         self.vector_store.create_index()
