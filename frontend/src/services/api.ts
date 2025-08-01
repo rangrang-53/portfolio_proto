@@ -23,6 +23,14 @@ export interface SystemStatus {
   index_fullness: number;
 }
 
+export interface ProcessingStatus {
+  is_processing: boolean;
+  progress: number;
+  current_step: string;
+  current_page: number;
+  total_pages: number;
+}
+
 // PDF 업로드
 export const uploadPDF = async (file: File): Promise<UploadResponse> => {
   const formData = new FormData();
@@ -54,6 +62,21 @@ export const uploadPDF = async (file: File): Promise<UploadResponse> => {
       throw error;
     }
     throw new Error('PDF 업로드 중 오류가 발생했습니다.');
+  }
+};
+
+// 진행상황 조회
+export const getProcessingStatus = async (): Promise<ProcessingStatus> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/processing-status`);
+    
+    if (!response.ok) {
+      throw new Error('진행상황 조회 중 오류가 발생했습니다.');
+    }
+
+    return await response.json();
+  } catch (error) {
+    throw new Error('진행상황 조회 중 오류가 발생했습니다.');
   }
 };
 

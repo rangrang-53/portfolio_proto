@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, FileText, X, CheckCircle, AlertCircle, Info, Loader2 } from 'lucide-react';
-import { uploadPDF } from '../services/api';
+import { uploadPDF, getProcessingStatus } from '../services/api';
 
 interface PDFUploadProps {
   onUploadSuccess: () => void;
@@ -12,7 +12,47 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [currentStep, setCurrentStep] = useState('');
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 진행상황 추적
+  useEffect(() => {
+    if (isUploading) {
+      const checkProgress = async () => {
+        try {
+          const status = await getProcessingStatus();
+          setProgress(status.progress);
+          setCurrentStep(status.current_step);
+          setCurrentPage(status.current_page);
+          setTotalPages(status.total_pages);
+          
+          // 처리 완료 시 인터벌 정리
+          if (!status.is_processing) {
+            if (progressIntervalRef.current) {
+              clearInterval(progressIntervalRef.current);
+              progressIntervalRef.current = null;
+            }
+          }
+        } catch (error) {
+          console.error('진행상황 조회 오류:', error);
+        }
+      };
+
+      // 1초마다 진행상황 조회
+      progressIntervalRef.current = setInterval(checkProgress, 1000);
+      
+      // 컴포넌트 언마운트 시 인터벌 정리
+      return () => {
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+        }
+      };
+    }
+  }, [isUploading]);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!isEnabled) return;
@@ -67,6 +107,10 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => 
     setIsUploading(true);
     setUploadStatus('idle');
     setMessage('');
+    setProgress(0);
+    setCurrentStep('');
+    setCurrentPage(0);
+    setTotalPages(0);
 
     try {
       const response = await uploadPDF(file);
@@ -78,6 +122,10 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => 
       setMessage(error instanceof Error ? error.message : '업로드에 실패했습니다.');
     } finally {
       setIsUploading(false);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
     }
   };
 
@@ -85,8 +133,25 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => 
     setFile(null);
     setUploadStatus('idle');
     setMessage('');
+    setProgress(0);
+    setCurrentStep('');
+    setCurrentPage(0);
+    setTotalPages(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  // 진행상황 메시지 생성
+  const getProgressMessage = () => {
+    if (progress >= 80) {
+      return "거의 다 됐습니다! 🎉";
+    } else if (progress >= 60) {
+      return "분석이 진행 중입니다...";
+    } else if (progress >= 30) {
+      return "OCR 처리가 진행 중입니다...";
+    } else {
+      return "PDF 파일을 분석하고 있습니다...";
     }
   };
 
@@ -95,12 +160,33 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => 
       {/* 업로드 중 모달 */}
       {isUploading && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 flex flex-col items-center shadow-xl">
+          <div className="bg-white rounded-lg p-8 flex flex-col items-center shadow-xl max-w-md w-full mx-4">
             <Loader2 className="w-12 h-12 text-primary-600 animate-spin mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">OCR 추출 중</h3>
+            
+            {/* 진행상황 표시 */}
+            <div className="w-full mb-4">
+              <div className="flex justify-between text-sm text-gray-600 mb-2">
+                <span>{currentStep}</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-primary-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                ></div>
+              </div>
+            </div>
+            
+            {/* 페이지 정보 */}
+            {totalPages > 0 && (
+              <div className="text-sm text-gray-600 mb-4">
+                페이지 {currentPage} / {totalPages}
+              </div>
+            )}
+            
             <p className="text-gray-600 text-center">
-              PDF 파일을 분석하고 있습니다...<br />
-              OCR 처리가 진행 중입니다.
+              {getProgressMessage()}
             </p>
           </div>
         </div>

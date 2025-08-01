@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable
 from pdf_processor import PDFProcessor
 from vector_store import VectorStore
 from llm_service import LLMService
@@ -27,29 +27,48 @@ class PDFQASystem:
         # 인덱스 생성
         self.vector_store.create_index()
     
-    def process_pdf(self, pdf_path: str) -> Dict[str, Any]:
+    def process_pdf(self, pdf_path: str, progress_callback: Callable = None) -> Dict[str, Any]:
         """
         PDF 파일을 처리하고 벡터 저장소에 저장합니다.
         
         Args:
             pdf_path: PDF 파일 경로
+            progress_callback: 진행상황 업데이트 콜백 함수 (progress, step, current_page)
             
         Returns:
             처리 결과 정보
         """
         try:
+            if progress_callback:
+                progress_callback(40, "PDF 텍스트 추출 중...", 0)
+            
             # PDF에서 텍스트 추출 및 청킹
-            chunks = self.pdf_processor.process_pdf(pdf_path)
+            chunks = self.pdf_processor.process_pdf(pdf_path, progress_callback)
+            
+            if progress_callback:
+                progress_callback(60, "기존 벡터 데이터 정리 중...", 0)
             
             # 기존 벡터 삭제 (새로운 PDF로 교체)
             self.vector_store.clear_all_vectors()
             
+            if progress_callback:
+                progress_callback(70, "벡터 데이터베이스에 저장 중...", 0)
+            
             # 청크들을 벡터 저장소에 저장
-            for chunk in chunks:
+            total_chunks = len(chunks)
+            for i, chunk in enumerate(chunks):
                 self.vector_store.add_text(
                     text=chunk["text"],
                     metadata={"chunk_id": chunk["chunk_id"]}
                 )
+                
+                # 진행상황 업데이트 (70% ~ 90%)
+                if progress_callback:
+                    chunk_progress = 70 + (i / total_chunks) * 20
+                    progress_callback(int(chunk_progress), f"청크 {i+1}/{total_chunks} 처리 중...", 0)
+            
+            if progress_callback:
+                progress_callback(90, "처리 완료 중...", 0)
             
             return {
                 "success": True,
@@ -58,6 +77,9 @@ class PDFQASystem:
             }
             
         except Exception as e:
+            if progress_callback:
+                progress_callback(0, f"오류 발생: {str(e)}", 0)
+            
             return {
                 "success": False,
                 "error": str(e),

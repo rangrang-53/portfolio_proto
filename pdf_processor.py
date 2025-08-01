@@ -3,7 +3,7 @@ import os
 import io
 import cv2
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable
 from pypdf import PdfReader
 import tiktoken
 import tempfile
@@ -68,12 +68,13 @@ class PDFProcessor:
         self.use_ocr = use_ocr and OCR_AVAILABLE and (PYMUPDF_AVAILABLE or PDF2IMAGE_AVAILABLE)
         self.tokenizer = tiktoken.get_encoding("cl100k_base")  # GPT-4 토크나이저
     
-    def extract_text_from_pdf(self, pdf_path: str) -> str:
+    def extract_text_from_pdf(self, pdf_path: str, progress_callback: Callable = None) -> str:
         """
         PDF 파일에서 텍스트를 추출합니다. (OCR 우선 사용)
         
         Args:
             pdf_path: PDF 파일 경로
+            progress_callback: 진행상황 업데이트 콜백 함수
             
         Returns:
             추출된 텍스트
@@ -84,7 +85,7 @@ class PDFProcessor:
             # 바로 OCR 사용 (텍스트 추출 건너뛰기)
             if self.use_ocr:
                 print("OCR을 사용하여 텍스트를 추출합니다...")
-                text = self._extract_text_with_ocr(pdf_path)
+                text = self._extract_text_with_ocr(pdf_path, progress_callback)
                 print(f"OCR 텍스트 추출 결과: {len(text.strip())} 문자")
             else:
                 # OCR이 비활성화된 경우에만 일반 텍스트 추출 사용
@@ -127,7 +128,7 @@ class PDFProcessor:
         
         return text
     
-    def _extract_text_with_ocr(self, pdf_path: str) -> str:
+    def _extract_text_with_ocr(self, pdf_path: str, progress_callback: Callable = None) -> str:
         """OCR을 사용하여 PDF에서 텍스트를 추출합니다."""
         if not OCR_AVAILABLE:
             raise Exception("OCR 기능을 사용할 수 없습니다. pytesseract, Pillow 라이브러리를 설치해주세요.")
@@ -147,6 +148,9 @@ class PDFProcessor:
             text = ""
             
             for i, image in enumerate(images):
+                if progress_callback:
+                    progress_callback(40 + (i / len(images)) * 10, f"페이지 {i+1} OCR 처리 중...", i+1)
+                
                 print(f"페이지 {i+1} OCR 처리 중...")
                 
                 # 이미지 전처리
@@ -598,23 +602,30 @@ class PDFProcessor:
         
         return all_sentences
     
-    def process_pdf(self, pdf_path: str) -> List[Dict[str, Any]]:
+    def process_pdf(self, pdf_path: str, progress_callback: Callable = None) -> List[Dict[str, Any]]:
         """
         PDF 파일을 처리하여 청킹된 텍스트 섹션들을 반환합니다.
         
         Args:
             pdf_path: PDF 파일 경로
+            progress_callback: 진행상황 업데이트 콜백 함수 (progress, step, current_page)
             
         Returns:
             청킹된 텍스트 섹션들의 리스트
         """
         # PDF에서 텍스트 추출
-        text = self.extract_text_from_pdf(pdf_path)
+        text = self.extract_text_from_pdf(pdf_path, progress_callback)
+        
+        if progress_callback:
+            progress_callback(50, "텍스트 청킹 중...", 0)
         
         # 텍스트를 청킹
         chunks = self.chunk_text(text)
         
-        return chunks 
+        if progress_callback:
+            progress_callback(60, f"{len(chunks)}개 청크 생성 완료", 0)
+        
+        return chunks
 
     def _convert_pdf_to_images(self, pdf_path: str) -> List[Image.Image]:
         """PDF를 이미지로 변환합니다."""
