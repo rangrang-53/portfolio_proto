@@ -32,7 +32,8 @@ class LLMService:
         # Llama 4 폴백 설정 (.env에서 로드 또는 직접 파라미터)
         if self.use_fallback:
             self.llama_api_key = llama_api_key or os.getenv("LLAMA_API_KEY")  # 직접 전달 또는 .env에서 로드
-            self.llama_endpoint = llama_endpoint or "https://api.llama.meta.com/v1/chat/completions"
+            # Groq API 엔드포인트 사용
+            self.llama_endpoint = llama_endpoint or "https://api.groq.com/openai/v1/chat/completions"
     
     def generate_answer_with_sources(self, question: str, similar_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -60,23 +61,41 @@ class LLMService:
                     generation_config=genai.types.GenerationConfig(
                         max_output_tokens=500,  # 응답 길이 제한
                         temperature=0.3,  # 일관성 향상
-                    ),
-                    timeout=60  # 60초 타임아웃
+                    )
+                    # timeout 파라미터 제거 (지원되지 않음)
                 )
                 
                 answer = response.text
                 model_used = "Gemini"
                 
             except Exception as gemini_error:
-                print(f"Gemini 오류: {str(gemini_error)}")
+                error_msg = str(gemini_error)
+                print(f"Gemini 오류: {error_msg}")
                 
-                # 폴백이 활성화되어 있으면 Llama 4 사용 (API 키 없어도 시도)
+                # 할당량 초과인지 확인
+                if "quota" in error_msg.lower() or "429" in error_msg:
+                    print("⚠️ Gemini API 할당량이 초과되었습니다. 무료 티어는 하루 50회로 제한됩니다.")
+                    print("💡 해결 방법:")
+                    print("   1. 내일까지 기다리기")
+                    print("   2. 유료 플랜으로 업그레이드")
+                    print("   3. 다른 API 키 사용")
+                
+                # 폴백이 활성화되어 있으면 Groq API 사용
                 if self.use_fallback:
                     try:
                         answer = self._generate_with_llama(prompt)
-                        model_used = "Llama 4 (폴백)"
+                        model_used = "Groq API (폴백)"
                     except Exception as llama_error:
-                        print(f"Llama 4 폴백 오류: {str(llama_error)}")
+                        print(f"Groq API 폴백 오류: {str(llama_error)}")
+                        
+                        # Groq API 설정 문제인지 확인
+                        if "ApiToken not found" in str(llama_error) or "401" in str(llama_error):
+                            print("⚠️ Groq API 토큰이 설정되지 않았거나 잘못되었습니다.")
+                            print("💡 해결 방법:")
+                            print("   1. .env 파일에 LLAMA_API_KEY 설정")
+                            print("   2. 또는 유효한 Groq API 키 확인")
+                            print("   3. Groq 계정에서 API 키 재발급")
+                        
                         answer = "죄송합니다. 답변을 생성하는 중에 오류가 발생했습니다."
                         model_used = "오류"
                 else:
@@ -108,17 +127,14 @@ class LLMService:
             }
     
     def _generate_with_llama(self, prompt: str) -> str:
-        """Llama 4를 사용하여 답변을 생성합니다."""
+        """Groq API를 사용하여 답변을 생성합니다."""
         headers = {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.llama_api_key}"  # Groq API는 항상 API 키가 필요
         }
         
-        # API 키가 있으면 Authorization 헤더 추가
-        if self.llama_api_key:
-            headers["Authorization"] = f"Bearer {self.llama_api_key}"
-        
         data = {
-            "model": "Llama-4-Scout-17B-16E",  # Meta Llama Scout 모델
+            "model": "llama3-8b-8192",  # Groq에서 제공하는 Llama 모델
             "messages": [
                 {
                     "role": "system",
@@ -134,18 +150,24 @@ class LLMService:
             "stream": False
         }
         
-        response = requests.post(
-            self.llama_endpoint,
-            headers=headers,
-            json=data,
-            timeout=30  # 30초 타임아웃
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            return result["choices"][0]["message"]["content"]
-        else:
-            raise Exception(f"Llama API 오류: {response.status_code} - {response.text}")
+        try:
+            response = requests.post(
+                self.llama_endpoint,
+                headers=headers,
+                json=data,
+                timeout=30  # 30초 타임아웃
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result["choices"][0]["message"]["content"]
+            else:
+                raise Exception(f"Groq API 오류: {response.status_code} - {response.text}")
+                
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"네트워크 오류: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Groq API 처리 오류: {str(e)}")
     
     def _combine_chunks_optimized(self, chunks: List[Dict[str, Any]]) -> str:
         """청크들을 최적화된 방식으로 결합합니다."""
