@@ -70,7 +70,7 @@ class PDFProcessor:
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """
-        PDF 파일에서 텍스트를 추출합니다. (OCR 지원)
+        PDF 파일에서 텍스트를 추출합니다. (OCR 우선 사용)
         
         Args:
             pdf_path: PDF 파일 경로
@@ -81,22 +81,15 @@ class PDFProcessor:
         try:
             print(f"PDF 처리 시작: {pdf_path}")
             
-            # 먼저 일반적인 텍스트 추출 시도
-            text = self._extract_text_normally(pdf_path)
-            print(f"일반 텍스트 추출 결과: {len(text.strip())} 문자")
-            
-            # 텍스트가 충분하지 않으면 OCR 사용
-            if len(text.strip()) < 50 and self.use_ocr:
-                print("텍스트 추출이 부족합니다. OCR을 사용합니다...")
-                ocr_text = self._extract_text_with_ocr(pdf_path)
-                print(f"OCR 텍스트 추출 결과: {len(ocr_text.strip())} 문자")
-                
-                # OCR 결과가 더 좋으면 OCR 텍스트 사용
-                if len(ocr_text.strip()) > len(text.strip()):
-                    text = ocr_text
-                    print("OCR 결과를 사용합니다.")
-                else:
-                    print("일반 텍스트 추출 결과를 사용합니다.")
+            # 바로 OCR 사용 (텍스트 추출 건너뛰기)
+            if self.use_ocr:
+                print("OCR을 사용하여 텍스트를 추출합니다...")
+                text = self._extract_text_with_ocr(pdf_path)
+                print(f"OCR 텍스트 추출 결과: {len(text.strip())} 문자")
+            else:
+                # OCR이 비활성화된 경우에만 일반 텍스트 추출 사용
+                text = self._extract_text_normally(pdf_path)
+                print(f"일반 텍스트 추출 결과: {len(text.strip())} 문자")
             
             # 텍스트 정리
             text = self._clean_text(text)
@@ -170,7 +163,7 @@ class PDFProcessor:
     
     def _extract_text_with_enhanced_ocr(self, image: Image.Image) -> str:
         """
-        향상된 OCR을 사용하여 이미지에서 텍스트를 추출합니다.
+        향상된 OCR을 사용하여 이미지에서 텍스트를 추출합니다. (속도와 정확도 최적화)
         
         Args:
             image: PIL Image 객체
@@ -179,90 +172,39 @@ class PDFProcessor:
             추출된 텍스트
         """
         try:
-            # 이미지 전처리
-            processed_image = self._preprocess_image(image)
+            # 이미지 전처리 (속도 최적화)
+            processed_image = self._preprocess_image_fast(image)
             
-            # 여러 OCR 설정을 시도하여 최적의 결과 찾기
-            configs = [
-                '--oem 3 --psm 6 -l kor+eng',  # 기본 설정
-                '--oem 3 --psm 3 -l kor+eng',  # 자동 페이지 세그멘테이션
-                '--oem 1 --psm 6 -l kor+eng',  # LSTM OCR 엔진
-                '--oem 3 --psm 8 -l kor+eng',  # 단일 워드
-                '--oem 3 --psm 13 -l kor+eng',  # 원시 라인
-                '--oem 3 --psm 1 -l kor+eng',  # 자동 페이지 세그멘테이션 + OSD
-                '--oem 1 --psm 3 -l kor+eng',  # LSTM + 자동 세그멘테이션
-            ]
+            # 한글 이름 인식에 최적화된 단일 OCR 설정 사용
+            # PSM 6: 단일 블록 (한글 이름에 적합)
+            # OEM 3: 기본 OCR 엔진 (속도와 정확도 균형)
+            # kor+eng: 한글과 영어 모두 지원
+            config = '--oem 3 --psm 6 -l kor+eng'
             
-            best_text = ""
-            best_confidence = 0
-            best_source = "processed"
+            # 원본 이미지로 먼저 시도
+            text = pytesseract.image_to_string(image, config=config)
             
-            # 전처리된 이미지로 OCR 시도
-            for i, config in enumerate(configs):
-                try:
-                    # OCR 실행
-                    text = pytesseract.image_to_string(
-                        processed_image, 
-                        config=config
-                    )
-                    
-                    # 텍스트 품질 평가 (한글과 영문 비율)
-                    korean_chars = len(re.findall(r'[가-힣]', text))
-                    english_chars = len(re.findall(r'[a-zA-Z]', text))
-                    total_chars = len(text.replace(' ', ''))
-                    
-                    if total_chars > 0:
-                        confidence = (korean_chars + english_chars) / total_chars
-                        if confidence > best_confidence:
-                            best_text = text
-                            best_confidence = confidence
-                            best_source = "processed"
-                            print(f"전처리 이미지 OCR 설정 {i+1} (점수: {confidence:.2f}): {config}")
-                            
-                except Exception as e:
-                    print(f"전처리 이미지 OCR 설정 {i+1} 실패: {e}")
-                    continue
+            # 텍스트 품질 평가
+            confidence = self._evaluate_text_quality_fast(text)
             
-            # 원본 이미지로도 OCR 시도 (전처리가 문제일 수 있음)
-            print("원본 이미지로 OCR 시도...")
-            for i, config in enumerate(configs[:3]):  # 처음 3개 설정만 시도
-                try:
-                    # OCR 실행
-                    text = pytesseract.image_to_string(
-                        image, 
-                        config=config
-                    )
-                    
-                    # 텍스트 품질 평가
-                    korean_chars = len(re.findall(r'[가-힣]', text))
-                    english_chars = len(re.findall(r'[a-zA-Z]', text))
-                    total_chars = len(text.replace(' ', ''))
-                    
-                    if total_chars > 0:
-                        confidence = (korean_chars + english_chars) / total_chars
-                        if confidence > best_confidence:
-                            best_text = text
-                            best_confidence = confidence
-                            best_source = "original"
-                            print(f"원본 이미지 OCR 설정 {i+1} (점수: {confidence:.2f}): {config}")
-                            
-                except Exception as e:
-                    print(f"원본 이미지 OCR 설정 {i+1} 실패: {e}")
-                    continue
+            # 품질이 낮으면 전처리된 이미지로 재시도
+            if confidence < 0.3:
+                print("원본 이미지 품질이 낮아 전처리된 이미지로 재시도...")
+                processed_text = pytesseract.image_to_string(processed_image, config=config)
+                processed_confidence = self._evaluate_text_quality_fast(processed_text)
+                
+                # 더 나은 결과 선택
+                if processed_confidence > confidence:
+                    text = processed_text
+                    confidence = processed_confidence
+                    print(f"전처리된 이미지 사용 (품질 점수: {confidence:.2f})")
+                else:
+                    print(f"원본 이미지 유지 (품질 점수: {confidence:.2f})")
+            else:
+                print(f"원본 이미지 사용 (품질 점수: {confidence:.2f})")
             
-            if not best_text:
-                # 모든 설정이 실패한 경우 기본 설정으로 재시도
-                best_text = pytesseract.image_to_string(
-                    image, 
-                    lang='kor+eng',
-                    config='--oem 3 --psm 6'
-                )
-                best_source = "fallback"
-            
-            print(f"최종 선택된 이미지: {best_source}")
-            
-            # 텍스트 정리
-            text = self._clean_text(best_text)
+            # 텍스트 정리 (속도 최적화)
+            text = self._clean_text_fast(text)
             
             return text
             
@@ -270,9 +212,11 @@ class PDFProcessor:
             print(f"OCR 처리 오류: {str(e)}")
             return ""
     
+
+    
     def _preprocess_image(self, image: Image.Image) -> Image.Image:
         """
-        OCR을 위한 이미지 전처리를 수행합니다.
+        OCR을 위한 이미지 전처리를 수행합니다. (속도 최적화 버전)
         
         Args:
             image: 원본 이미지
@@ -290,36 +234,38 @@ class PDFProcessor:
             else:
                 gray = img_array
             
-            # 이미지 크기 조정 (적당한 해상도로)
+            # 이미지 크기 조정 (적당한 해상도로 제한)
             height, width = gray.shape
-            if width < 1500:  # 적당한 해상도로 확대
+            if width > 3000:  # 너무 큰 이미지는 축소
+                scale_factor = 3000 / width
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+                gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            elif width < 1500:  # 너무 작은 이미지는 확대
                 scale_factor = 1500 / width
                 new_width = int(width * scale_factor)
                 new_height = int(height * scale_factor)
                 gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
             
-            # 노이즈 제거 (약한 필터)
+            # 간단한 노이즈 제거
             denoised = cv2.medianBlur(gray, 3)
             
-            # 적응형 이진화 (더 보수적)
+            # 적응형 이진화 (빠른 버전)
             binary = cv2.adaptiveThreshold(
-                denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 5
+                denoised, 
+                255, 
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 
+                15, 
+                2
             )
             
-            # 모폴로지 연산 (약한 필터)
-            kernel = np.ones((1, 1), np.uint8)
-            processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-            
             # numpy 배열을 PIL 이미지로 변환
-            processed_image = Image.fromarray(processed)
+            processed_image = Image.fromarray(binary)
             
-            # 대비 향상 (약하게)
+            # 대비 향상 (적당한 강도)
             enhancer = ImageEnhance.Contrast(processed_image)
-            processed_image = enhancer.enhance(1.5)
-            
-            # 밝기 조정 (약하게)
-            enhancer = ImageEnhance.Brightness(processed_image)
-            processed_image = enhancer.enhance(1.1)
+            processed_image = enhancer.enhance(1.3)
             
             return processed_image
             
@@ -327,35 +273,114 @@ class PDFProcessor:
             print(f"이미지 전처리 오류: {str(e)}")
             return image
     
-    def _convert_pdf_to_images(self, pdf_path: str) -> List[Image.Image]:
-        """PDF를 이미지로 변환합니다."""
-        if PYMUPDF_AVAILABLE:
-            return self._convert_with_pymupdf(pdf_path)
-        elif PDF2IMAGE_AVAILABLE:
-            return convert_from_path(pdf_path)
-        else:
-            raise Exception("PDF를 이미지로 변환할 수 있는 라이브러리가 없습니다.")
+    def _preprocess_image_fast(self, image: Image.Image) -> Image.Image:
+        """
+        OCR을 위한 빠른 이미지 전처리를 수행합니다.
+        
+        Args:
+            image: 원본 이미지
+            
+        Returns:
+            전처리된 이미지
+        """
+        try:
+            # 이미지를 numpy 배열로 변환
+            img_array = np.array(image)
+            
+            # 그레이스케일 변환
+            if len(img_array.shape) == 3:
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img_array
+            
+            # 이미지 크기 조정 (적당한 해상도로 제한)
+            height, width = gray.shape
+            if width > 3000:  # 너무 큰 이미지는 축소
+                scale_factor = 3000 / width
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+                gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            elif width < 1500:  # 너무 작은 이미지는 확대
+                scale_factor = 1500 / width
+                new_width = int(width * scale_factor)
+                new_height = int(height * scale_factor)
+                gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+            
+            # 간단한 노이즈 제거
+            denoised = cv2.medianBlur(gray, 3)
+            
+            # 적응형 이진화 (빠른 버전)
+            binary = cv2.adaptiveThreshold(
+                denoised, 
+                255, 
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                cv2.THRESH_BINARY, 
+                15, 
+                2
+            )
+            
+            # numpy 배열을 PIL 이미지로 변환
+            processed_image = Image.fromarray(binary)
+            
+            # 대비 향상 (적당한 강도)
+            enhancer = ImageEnhance.Contrast(processed_image)
+            processed_image = enhancer.enhance(1.3)
+            
+            return processed_image
+            
+        except Exception as e:
+            print(f"이미지 전처리 오류: {str(e)}")
+            return image
     
-    def _convert_with_pymupdf(self, pdf_path: str) -> List[Image.Image]:
-        """PyMuPDF를 사용하여 PDF를 이미지로 변환합니다."""
-        doc = fitz.open(pdf_path)
-        images = []
+    def _evaluate_text_quality_fast(self, text: str) -> float:
+        """
+        텍스트 품질을 빠르게 평가합니다.
         
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            # 더 높은 해상도로 렌더링 (3x 확대)
-            mat = fitz.Matrix(3.0, 3.0)
-            pix = page.get_pixmap(matrix=mat)
-            img_data = pix.tobytes("ppm")
-            img = Image.open(io.BytesIO(img_data))
-            images.append(img)
+        Args:
+            text: 평가할 텍스트
+            
+        Returns:
+            품질 점수 (0.0 ~ 1.0)
+        """
+        if not text.strip():
+            return 0.0
         
-        doc.close()
-        return images
+        # 한글과 영문 문자 수 계산
+        korean_chars = len(re.findall(r'[가-힣]', text))
+        english_chars = len(re.findall(r'[a-zA-Z]', text))
+        total_chars = len(text.replace(' ', ''))
+        
+        if total_chars == 0:
+            return 0.0
+        
+        # 기본 품질 점수
+        basic_score = (korean_chars + english_chars) / total_chars
+        
+        # 한글 이름 패턴 점수 (간단한 버전)
+        name_patterns = [
+            r'[김이박최정강조윤장임한오서신권황안송류고문양손배조백허유남심노정하곽성차주우구신임나전민][가-힣]{1,3}\s*\(\d{2}\.\d{2}\.\d{2}\)',  # 이름 + 생년월일
+            r'[김이박최정강조윤장임한오서신권황안송류고문양손배조백허유남심노정하곽성차주우구신임나전민][가-힣]{1,3}',  # 한글 이름
+        ]
+        
+        name_score = 0
+        for pattern in name_patterns:
+            matches = re.findall(pattern, text)
+            if matches:
+                name_score += len(matches) * 0.2  # 이름 패턴당 0.2점 추가
+        
+        # 특수문자 비율 (간단한 평가)
+        special_chars = len(re.findall(r'[^\w\s가-힣]', text))
+        special_ratio = special_chars / max(total_chars, 1)
+        special_score = max(0, 1.0 - special_ratio * 3)
+        
+        # 종합 점수 계산
+        final_score = (basic_score * 0.6 + name_score * 0.3 + special_score * 0.1)
+        
+        return min(final_score, 1.0)
     
     def _clean_text(self, text: str) -> str:
         """
-        추출된 텍스트를 정리합니다.
+        추출된 텍스트를 정리합니다. (속도 최적화 버전)
         
         Args:
             text: 원본 텍스트
@@ -363,84 +388,45 @@ class PDFProcessor:
         Returns:
             정리된 텍스트
         """
+        if not text.strip():
+            return ""
+        
+        # 기본 정리
         # 불필요한 공백 제거
         text = re.sub(r'\s+', ' ', text)
         
-        # 페이지 번호 제거 (일반적인 패턴)
+        # 페이지 번호 제거
         text = re.sub(r'\b\d+\s*페이지?\b', '', text, flags=re.IGNORECASE)
         
-        # OCR 오류 수정 (일반적인 오타 패턴)
-        text = re.sub(r'APIz\s*\}\s*(\d+)', r'API \1', text)  # APIz} 60015 -> API 60015
-        text = re.sub(r'(\d+)\s*원', r'\1원', text)  # 숫자와 원 사이 공백 제거
+        # 핵심적인 한글 이름 수정 패턴들
+        # 1. 한글 사이 공백 제거
+        text = re.sub(r'([가-힣])\s+([가-힣])', r'\1\2', text)
         
-        # 날짜 관련 오류 수정
-        text = re.sub(r'낙짜\s*전부', '날짜 정보', text)  # 낙짜 전부 -> 날짜 정보
-        text = re.sub(r'날짜\s*전부', '날짜 정보', text)  # 날짜 전부 -> 날짜 정보
-        text = re.sub(r'(\d{4})년', r'\1년', text)  # 연도 형식 정리
+        # 2. 이름 + 생년월일 패턴 정리
+        text = re.sub(r'([가-힣]+)\s*\((\d{2}\.\d{2}\.\d{2})\)', r'\1 (\2)', text)
         
-        # 기술 스택 관련 오류 수정
-        text = re.sub(r'Spring\s*Boot', 'Spring Boot', text)  # Spring Boot 정리
-        text = re.sub(r'Java\s*Script', 'JavaScript', text)  # JavaScript 정리
-        text = re.sub(r'Node\.\s*js', 'Node.js', text)  # Node.js 정리
-        text = re.sub(r'React\s*JS', 'React.js', text)  # React.js 정리
-        text = re.sub(r'Python\s*Script', 'Python', text)  # Python 정리
-        text = re.sub(r'Docker\s*Container', 'Docker', text)  # Docker 정리
+        # 3. 성씨 + 이름 패턴에서 공백 제거
+        text = re.sub(r'([김이박최정강조윤장임한오서신권황안송류고문양손배조백허유남심노정하곽성차주우구신임나전민])\s*([가-힣]{1,3})', r'\1\2', text)
         
-        # 프로젝트명 관련 오류 수정
-        text = re.sub(r'Boost\s*Shot', 'Boost Shot', text)  # Boost Shot 정리
-        text = re.sub(r'Cloja\s*areray\s*Sey', 'Cloja areray Sey', text)  # 프로젝트명 정리
+        # 4. 일반적인 한글 OCR 오류 수정 (핵심적인 것들만)
+        name_corrections = {
+            r'이\s*름': '이름',
+            r'생\s*년': '생년',
+            r'월\s*일': '월일',
+            r'연\s*락': '연락',
+            r'이\s*메': '이메',
+            r'개\s*발': '개발',
+            r'이\s*력': '이력',
+            r'자\s*기': '자기',
+            r'소\s*개': '소개',
+            r'경\s*력': '경력',
+            r'학\s*력': '학력',
+            r'기\s*술': '기술',
+        }
         
-        # 일반적인 OCR 오류 수정
-        text = re.sub(r'([A-Z])([a-z]+)([A-Z])', r'\1\2 \3', text)  # CamelCase 분리
-        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)  # camelCase 분리
-        
-        # 추가 OCR 오류 수정 패턴들
-        # 깨진 한글 문자 수정
-        text = re.sub(r'로\s*po\s*는', '로부터', text)
-        text = re.sub(r'이\s*6\s*겨은', '이력서', text)
-        text = re.sub(r'SSE\s*Sl\s*쿠비', 'Spring Boot', text)
-        text = re.sub(r'이\s*a\s*-', '이력서', text)
-        text = re.sub(r'ale\s*대\s*외', '개발자', text)
-        text = re.sub(r'st\s*Se\s*a', 'Spring', text)
-        text = re.sub(r'ry\s*1\s*oan', 'React', text)
-        text = re.sub(r'we\s*ee\s*에', '웹', text)
-        text = re.sub(r'난티이데', '개발', text)
-        text = re.sub(r'년에\s*에이', '년', text)
-        text = re.sub(r'이\s*이애\s*이타언', '이력서', text)
-        text = re.sub(r'이과티\s*애와에', '이력서', text)
-        
-        # 기술 스택 관련 추가 수정
-        text = re.sub(r'Java\s*Script', 'JavaScript', text)
-        text = re.sub(r'Spring\s*Framework', 'Spring Framework', text)
-        text = re.sub(r'MySQL\s*Database', 'MySQL', text)
-        text = re.sub(r'Redis\s*Cache', 'Redis', text)
-        text = re.sub(r'AWS\s*Cloud', 'AWS', text)
-        text = re.sub(r'Docker\s*Container', 'Docker', text)
-        text = re.sub(r'Kubernetes\s*Orchestration', 'Kubernetes', text)
-        text = re.sub(r'Git\s*Version\s*Control', 'Git', text)
-        text = re.sub(r'Jenkins\s*CI/CD', 'Jenkins', text)
-        
-        # 프로젝트 관련 수정
-        text = re.sub(r'프로젝트\s*개요', '프로젝트 개요', text)
-        text = re.sub(r'기술\s*스택', '기술 스택', text)
-        text = re.sub(r'주요\s*기능', '주요 기능', text)
-        text = re.sub(r'개발\s*환경', '개발 환경', text)
-        text = re.sub(r'배포\s*환경', '배포 환경', text)
-        
-        # 더 강력한 OCR 오류 수정 패턴들
-        # 한글 자음/모음 분리 오류 수정
-        text = re.sub(r'([가-힣])\s*([가-힣])', r'\1\2', text)  # 한글 사이 공백 제거
-        text = re.sub(r'([ㄱ-ㅎㅏ-ㅣ])\s*([ㄱ-ㅎㅏ-ㅣ])', r'\1\2', text)  # 자음/모음 사이 공백 제거
-        
-        # 영문 단어 분리 오류 수정
-        text = re.sub(r'([a-zA-Z])\s+([a-zA-Z])', r'\1\2', text)  # 영문 단어 사이 공백 제거
-        
-        # 숫자와 단위 사이 공백 제거
-        text = re.sub(r'(\d+)\s+([a-zA-Z가-힣]+)', r'\1\2', text)
-        
-        # 특수 문자 정리 (더 관대하게)
-        # 한글, 영문, 숫자, 기본 문장부호만 허용
-        text = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\{\}\가-힣\@\#\$\%\^\&\*\+\=\|\~\`\<\>\?\/\\]', '', text)
+        # 이름 오류 수정 적용
+        for wrong_pattern, correct_text in name_corrections.items():
+            text = re.sub(wrong_pattern, correct_text, text)
         
         # 연속된 공백 정리
         text = re.sub(r'\s+', ' ', text)
@@ -448,21 +434,69 @@ class PDFProcessor:
         # 문장 시작과 끝의 공백 제거
         text = text.strip()
         
-        # 텍스트 품질 검증
-        korean_ratio = len(re.findall(r'[가-힣]', text)) / max(len(text), 1)
-        english_ratio = len(re.findall(r'[a-zA-Z]', text)) / max(len(text), 1)
+        return text
+    
+    def _clean_text_fast(self, text: str) -> str:
+        """
+        추출된 텍스트를 빠르게 정리합니다. (핵심적인 수정만)
         
-        print(f"텍스트 품질 - 한글 비율: {korean_ratio:.2f}, 영문 비율: {english_ratio:.2f}")
+        Args:
+            text: 원본 텍스트
+            
+        Returns:
+            정리된 텍스트
+        """
+        if not text.strip():
+            return ""
         
-        # 품질이 너무 나쁘면 경고
-        if korean_ratio < 0.1 and english_ratio < 0.1:
-            print("⚠️ 경고: 텍스트 품질이 매우 낮습니다. OCR 설정을 확인해주세요.")
+        # 기본 정리
+        # 불필요한 공백 제거
+        text = re.sub(r'\s+', ' ', text)
+        
+        # 페이지 번호 제거
+        text = re.sub(r'\b\d+\s*페이지?\b', '', text, flags=re.IGNORECASE)
+        
+        # 핵심적인 한글 이름 수정 패턴들
+        # 1. 한글 사이 공백 제거 (기본적인 것만)
+        text = re.sub(r'([가-힣])\s+([가-힣])', r'\1\2', text)
+        
+        # 2. 이름 + 생년월일 패턴 정리
+        text = re.sub(r'([가-힣]+)\s*\((\d{2}\.\d{2}\.\d{2})\)', r'\1 (\2)', text)
+        
+        # 3. 일반적인 한글 OCR 오류 수정 (핵심적인 것들만)
+        name_corrections = {
+            r'이\s*름': '이름',
+            r'생\s*년': '생년',
+            r'월\s*일': '월일',
+            r'연\s*락': '연락',
+            r'이\s*메': '이메',
+            r'개\s*발': '개발',
+            r'이\s*력': '이력',
+            r'자\s*기': '자기',
+            r'소\s*개': '소개',
+            r'경\s*력': '경력',
+            r'학\s*력': '학력',
+            r'기\s*술': '기술',
+        }
+        
+        # 이름 오류 수정 적용
+        for wrong_pattern, correct_text in name_corrections.items():
+            text = re.sub(wrong_pattern, correct_text, text)
+        
+        # 4. 성씨 + 이름 패턴에서 공백 제거
+        text = re.sub(r'([김이박최정강조윤장임한오서신권황안송류고문양손배조백허유남심노정하곽성차주우구신임나전민])\s*([가-힣]{1,3})', r'\1\2', text)
+        
+        # 연속된 공백 정리
+        text = re.sub(r'\s+', ' ', text)
+        
+        # 문장 시작과 끝의 공백 제거
+        text = text.strip()
         
         return text
     
     def chunk_text(self, text: str) -> List[Dict[str, Any]]:
         """
-        텍스트를 지정된 토큰 크기로 청킹합니다.
+        텍스트를 지정된 토큰 크기로 청킹합니다. (이름 정보 포함 개선)
         
         Args:
             text: 청킹할 텍스트
@@ -470,8 +504,8 @@ class PDFProcessor:
         Returns:
             청킹된 텍스트 섹션들의 리스트
         """
-        # 텍스트를 문장 단위로 분할
-        sentences = self._split_into_sentences(text)
+        # 텍스트를 문장 단위로 분할 (짧은 문장도 포함)
+        sentences = self._split_into_sentences_with_names(text)
         
         chunks = []
         current_chunk = ""
@@ -509,9 +543,9 @@ class PDFProcessor:
         
         return chunks
     
-    def _split_into_sentences(self, text: str) -> List[str]:
+    def _split_into_sentences_with_names(self, text: str) -> List[str]:
         """
-        텍스트를 문장 단위로 분할합니다.
+        텍스트를 문장 단위로 분할합니다. (이름 정보 포함 개선)
         
         Args:
             text: 분할할 텍스트
@@ -519,20 +553,50 @@ class PDFProcessor:
         Returns:
             문장들의 리스트
         """
-        # 문장 끝 패턴 (마침표, 느낌표, 물음표)
-        sentence_end_pattern = r'[.!?]+'
+        # 한글 이름 패턴을 먼저 찾아서 별도로 처리
+        name_patterns = [
+            r'[김이박최정강조윤장임한오서신권황안송류고문양손배조백허유남심노정하곽성차주우구신임나전민][가-힣]{1,3}\s*\(\d{2}\.\d{2}\.\d{2}\)',  # 이름 + 생년월일
+            r'[김이박최정강조윤장임한오서신권황안송류고문양손배조백허유남심노정하곽성차주우구신임나전민][가-힣]{1,3}',  # 한글 이름
+            r'[가-힣]{2,4}\s*\(\d{2}\.\d{2}\.\d{2}\)',  # 이름 + 생년월일 (일반)
+        ]
+        
+        # 이름 패턴들을 별도로 추출
+        name_sentences = []
+        for pattern in name_patterns:
+            matches = re.findall(pattern, text)
+            for match in matches:
+                name_sentences.append(match.strip())
+        
+        # 문장 끝 패턴 (마침표, 느낌표, 물음표, 줄바꿈)
+        sentence_end_pattern = r'[.!?\n]+'
         
         # 텍스트를 문장으로 분할
         sentences = re.split(sentence_end_pattern, text)
         
-        # 빈 문장 제거 및 정리
+        # 빈 문장 제거 및 정리 (길이 제한 완화)
         cleaned_sentences = []
         for sentence in sentences:
             sentence = sentence.strip()
-            if sentence and len(sentence) > 10:  # 너무 짧은 문장 제외
+            if sentence and len(sentence) > 3:  # 3자 이상이면 포함 (이름 포함)
                 cleaned_sentences.append(sentence)
         
-        return cleaned_sentences
+        # 이름 문장들을 앞쪽에 추가 (중복 제거)
+        all_sentences = []
+        seen_sentences = set()
+        
+        # 이름 문장들을 먼저 추가
+        for name_sentence in name_sentences:
+            if name_sentence not in seen_sentences:
+                all_sentences.append(name_sentence)
+                seen_sentences.add(name_sentence)
+        
+        # 일반 문장들 추가
+        for sentence in cleaned_sentences:
+            if sentence not in seen_sentences:
+                all_sentences.append(sentence)
+                seen_sentences.add(sentence)
+        
+        return all_sentences
     
     def process_pdf(self, pdf_path: str) -> List[Dict[str, Any]]:
         """
@@ -551,3 +615,29 @@ class PDFProcessor:
         chunks = self.chunk_text(text)
         
         return chunks 
+
+    def _convert_pdf_to_images(self, pdf_path: str) -> List[Image.Image]:
+        """PDF를 이미지로 변환합니다."""
+        if PYMUPDF_AVAILABLE:
+            return self._convert_with_pymupdf(pdf_path)
+        elif PDF2IMAGE_AVAILABLE:
+            return convert_from_path(pdf_path)
+        else:
+            raise Exception("PDF를 이미지로 변환할 수 있는 라이브러리가 없습니다.")
+    
+    def _convert_with_pymupdf(self, pdf_path: str) -> List[Image.Image]:
+        """PyMuPDF를 사용하여 PDF를 이미지로 변환합니다. (속도 최적화)"""
+        doc = fitz.open(pdf_path)
+        images = []
+        
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            # 적당한 해상도로 렌더링 (2x 확대 - 속도와 품질 균형)
+            mat = fitz.Matrix(2.0, 2.0)
+            pix = page.get_pixmap(matrix=mat)
+            img_data = pix.tobytes("ppm")
+            img = Image.open(io.BytesIO(img_data))
+            images.append(img)
+        
+        doc.close()
+        return images 

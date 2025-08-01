@@ -97,10 +97,10 @@ const PDFUpload: React.FC<PDFUploadProps> = ({ onUploadSuccess, isEnabled }) => 
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-8 flex flex-col items-center shadow-xl">
             <Loader2 className="w-12 h-12 text-primary-600 animate-spin mb-4" />
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">PDF 업로드 중</h3>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">OCR 추출 중</h3>
             <p className="text-gray-600 text-center">
-              파일을 업로드하고 있습니다...<br />
-              OCR 처리 중일 수 있습니다.
+              PDF 파일을 분석하고 있습니다...<br />
+              OCR 처리가 진행 중입니다.
             </p>
           </div>
         </div>
